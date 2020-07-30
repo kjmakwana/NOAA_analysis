@@ -1,0 +1,213 @@
+---
+title: "NOAA Storm Data Analysis from 1950-2011"
+author: "Kshitij Makwana"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This report involves analysing the U.S. National Oceanic and Atmospheric Administration's (NOAA) [storm database](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2). The documentation for this database is also available:  
+
+* National Weather Service [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)
+* National Climatic Data Center Storm Events [FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)
+
+The report analyses the damage caused to human lives and the economical damage caused by storms and heatwaves in the United States. The data analysed is from the year 1950 to the November of 2011.
+
+## Synopsis
+
+The first figure containing two plots show the human casualties (injuries/fatalities) caused by the storms and heatwaves. The plots clearly show that tornadoes are the most deadly and dangerous to human lives affecting a total of almost a 100k people. To reduce these dangers to human lives, it is recommended that the government employs better early warning systems so evacuations can take place before catastrophe strikes.
+
+The second figure also contains two plots and shows the financial damages caused by these events to property and crops respectively. We can conclude that floods cause the maximum damage to property whereas heatwaves cause the maximum damage to crops. To avoid these damages the government could establish early warning systems and better drainage to control the floods. As far as the droughts are concerned, the report recommends better use of irrigation and methods to save water such as rainwater harvesting. 
+
+## Data Processing
+
+The following chunk of code load the dependencies into the workspace.
+
+```{r load_dependencies,message=FALSE}
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(cowplot)
+library(knitr)
+```
+
+The following code chunk reads the data into the workspace using the read.csv() function.
+
+```{r load_data,cache=TRUE,message=FALSE}
+s_data<-read.csv("storm_data.csv")
+events<-select(s_data,EVTYPE,STATE,FATALITIES,INJURIES)
+```
+
+#### Which event type causes the most damage to the population health?
+
+The code chunk below extracts the data for fatalities and injuries caused by various storm events. We take into consideration only the top 10 events in each case.
+
+```{r population_health, echo=TRUE,message=FALSE,cache=TRUE}
+
+deaths<-tapply(events$FATALITIES,events$EVTYPE,sum,na.rm=TRUE)
+deaths_10<-sort(deaths,decreasing = TRUE)[1:10]
+df<-data.frame(deaths=deaths_10)
+g<-ggplot(df,aes(row.names(df),deaths))
+g1<-g+geom_col(fill="#59d6ff")+
+      theme(axis.text.x = element_text(angle = 90,vjust = 0.5,hjust = 1,size = 10))+
+      labs(x="Event",y="Fatalities",title = "Total Fatalities for Disasters")
+
+injuries<-tapply(events$INJURIES,events$EVTYPE,sum,na.rm=TRUE)
+injuries_10<-sort(injuries,decreasing = TRUE)[1:10]
+df<-data.frame(injuries=injuries_10)
+g<-ggplot(df,aes(row.names(df),injuries))
+g2<-g+geom_col(fill="#59d6ff")+
+      theme(axis.text.x = element_text(angle = 90,vjust = 0.5,hjust = 1,size = 10))+
+      labs(x="Event",y="Injuries",title = "Total Injuries for Disasters")
+p<-plot_grid(g1,g2,align = "h")
+```
+
+The code chunk below finds the top 15 events which cause the maximum casualties(injuries + fatalities).
+
+```{r,cache=TRUE,message=FALSE}
+total<-deaths+injuries
+df<-data.frame(Events=names(total),
+               total=total)
+df<-df[order(df$total,decreasing = TRUE),]
+df<-df[1:15,]
+rownames(df)<-NULL
+colnames(df)<-c("Events","Total Casualties")
+lives<-df
+```
+
+#### Across the United States, which types of events have the greatest economic consequences?
+
+Economic consequences are calculated in two categories:
+
+1. Property Damage 
+2. Crop Damage
+
+Damages have been rounded to three significant digits, followed by an alphabetical character signifying the magnitude of the number, i.e., 1.55B for $1,550,000,000. Alphabetical characters used to signify magnitude include “K” for thousands, “M” for millions, and “B” for billions. 
+
+Let us look at these columns to have a better understanding
+
+```{r,cache=TRUE,message=FALSE}
+print(head(select(s_data,PROPDMG,PROPDMGEXP)))
+```
+
+There is a lot of noisy data in the PROPDMGEXP and the CROPDMGEXP columns. Let us filter the data and get the required rows only.
+
+```{r,cache=TRUE,message=FALSE}
+
+prop_dmg<-select(s_data,EVTYPE,PROPDMG,PROPDMGEXP)%>%filter(PROPDMGEXP==""|PROPDMGEXP=="K"|PROPDMGEXP=="M"|PROPDMGEXP=="B")
+crop_dmg<-select(s_data,EVTYPE,CROPDMG,CROPDMGEXP)%>%filter(CROPDMGEXP==""|CROPDMGEXP=="K"|CROPDMGEXP=="M"|CROPDMGEXP=="B")
+```
+
+Now we will find the absolute value of the damage caused by storms to property and crops respectively. This will depend on the alphabetical character signifying the magnitude. Then we will calculate the total damage for every event.
+
+```{r,cache=TRUE,message=FALSE}
+prop_dmg<-mutate(prop_dmg,
+                 DMG=case_when(PROPDMGEXP==""~PROPDMG,
+                 PROPDMGEXP=="K"~PROPDMG*1000,
+                 PROPDMGEXP=="M"~PROPDMG*1000000,
+                 PROPDMGEXP=="B"~PROPDMG*1000000000))
+dmg<-tapply(prop_dmg$DMG,prop_dmg$EVTYPE,sum,na.rm=TRUE)
+dmg_data<-data.frame(Event=names(dmg),
+                     property_damage=dmg,
+                     row.names = NULL)
+df<-data.frame(Event=names(dmg),
+               Damage=dmg,row.names = NULL)
+df<-df[order(df$Damage,decreasing = TRUE),]
+df<-df[1:10,]
+df<-mutate(df,Damage=round(Damage/1000000000,digits = 2))
+g1<-ggplot(df,aes(Event,Damage))+
+    geom_col(fill="#59d6ff")+
+    theme(axis.text.x = element_text(angle = 90,vjust = 0.5,hjust = 1,size = 10))+
+    labs(x="Event",y="Financial Damage (Billions)",title = "Economical Damage to Property")+
+    geom_text(aes(label=Damage),size=3,vjust=0)
+
+
+crop_dmg<-mutate(crop_dmg,
+                 DMG=case_when(CROPDMGEXP==""~CROPDMG,
+                 CROPDMGEXP=="K"~CROPDMG*1000,
+                 CROPDMGEXP=="M"~CROPDMG*1000000,
+                 CROPDMGEXP=="B"~CROPDMG*1000000000))
+dmg<-tapply(crop_dmg$DMG,crop_dmg$EVTYPE,sum,na.rm=TRUE)
+dmg_data$crop_damage<-dmg
+rownames(dmg_data)=NULL
+df<-data.frame(Event=names(dmg),
+               Damage=dmg,row.names = NULL)
+df<-df[order(df$Damage,decreasing = TRUE),]
+df<-df[1:10,]
+df<-mutate(df,Damage=round(Damage/1000000000,digits = 2))
+g2<-ggplot(df,aes(Event,Damage))+
+    geom_col(fill="#59d6ff")+
+    theme(axis.text.x = element_text(angle = 90,vjust = 0.5,hjust = 1,size = 10))+
+    labs(x="Event",y="Financial Damage (Billions)",title = "Economical Damage to Crops")+
+    geom_text(aes(label=Damage),size=3,vjust=0)
+
+p2<-plot_grid(g1,g2,align = "h")
+
+```
+
+```{r,cache=TRUE,message=FALSE}
+dmg_data<-mutate(dmg_data,total_Damage=property_damage+crop_damage)
+dmg_data<-dmg_data[order(dmg_data$total_Damage,decreasing = TRUE),]
+dmg_data<-dmg_data[1:15,]
+dmg_data<-mutate(dmg_data,total_Damage=round(total_Damage/1000000000,digits = 2),
+                          crop_damage=round(crop_damage/1000000000,digits = 2),
+                          property_damage=round(property_damage/1000000000,digits = 2))
+rownames(dmg_data)<-NULL
+colnames(dmg_data)<-c("Event","Property Damage (Billions)","Crop Damage (Billions)","Total Damage (Billions)")
+
+```
+
+## Results
+
+#### Which event type causes the most damage to the population health?
+
+The plots shown below group the data in two parts-
+
+1. Injuries caused by the events  
+2. Fatalities caused by the events
+  
+The plots only contain top 10 fatalities/injury causing events.  
+
+```{r casualties_plots,cache=TRUE,message=FALSE}
+p
+```
+
+The plots clearly imply that tornadoes cause the highest suffering to human health, leading in both fatalities and injuries.
+
+
+The table below displays the top 15 casualty (Injuries and Fatalities) causing events.
+```{r}
+kable(lives)
+```
+
+#### Across the United States, which types of events have the greatest economic consequences?
+
+The two plots shown below group teh data in two categories:
+
+1. Economical Damage caused to Property
+2. Economical Damage caused to Crops
+
+The plots only contain the top 10 damage causing events.
+
+```{r damage_plots,cache=TRUE,message=FALSE}
+
+p2
+
+```
+
+Floods have caused the maximum Property damage, a whopping \$144.6B dollars. Droughts have caused the maximum damage to crops - \$13.97B. This is understandable as droughts cause the crops to wither and lead to large fields of crops being rendered useless to consume. 
+
+The following table gives the full summary of damages caused by natural events to both property and crops. From the table it is pretty clear that floods have the greatest economic consequence, causing a total economic damage of \$150 billion.
+
+```{r}
+kable(dmg_data)
+```
+
+
+
+
+
+
+
